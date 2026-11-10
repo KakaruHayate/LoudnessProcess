@@ -1,0 +1,19 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.venv/
+venv/
+
+# output of the tool itself
+_loudness_audit/
+_report.csv
+_groups.csv
+_report.md
+audit_report.md
+audit_files.csv
+audit_files_before.csv
+AB_before.wav
+AB_after.wav
+AB_interleaved.wav
