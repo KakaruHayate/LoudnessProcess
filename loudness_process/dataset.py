@@ -21,16 +21,30 @@ __all__ = ['discover', 'group_of', 'order_key', 'features', 'pbar_of',
 def group_of(name):
     """Name prefix -> source key, so that clips of the same recording are pooled.
 
-    '123_045'     -> 'song123'   (numeric source id + clip index)
-    'lead_02'     -> 'lead'      (anything before a trailing index)
-    'vocal.wav'   -> 'vocal'     (no trailing index: the file is its own source)
+    '123_045'      -> 'song123'   (numeric source id + clip index)
+    'lead_02'      -> 'lead'      (anything before a trailing index)
+    'Vox_1_00_EN'  -> 'Vox_1'     (a trailing 2-3 letter language tag is ignored)
+    'vocal.wav'    -> 'vocal'     (no trailing index: the file is its own source)
     """
     stem = os.path.splitext(os.path.basename(name))[0]
+    m = re.match(r'^(.*)_[A-Za-z]{2,3}$', stem)      # drop a language tag
+    if m:
+        stem = m.group(1)
     m = re.match(r'^(\d+)_\d+$', stem)
     if m:
         return 'song' + m.group(1)
     m = re.match(r'^(.*)_\d+$', stem)
     return m.group(1) if m else stem
+
+
+def group_key(path, root, by='name'):
+    """Source key for a file.  by='dir' also pins the containing folder, so that
+    the same song in two folders (different language, different style) is not
+    merged into one source."""
+    if by == 'dir':
+        rel = os.path.relpath(os.path.dirname(path), root).replace('\\', '/')
+        return rel + '/' + group_of(path)
+    return group_of(path)
 
 
 def order_key(name):
@@ -39,12 +53,12 @@ def order_key(name):
     return int(nums[-1]) if nums else 0
 
 
-def discover(root, pattern='*.wav'):
+def discover(root, pattern='*.wav', by='name'):
     """-> (paths, groups).  `pattern` may contain '**' for nested layouts."""
     paths = sorted(glob.glob(os.path.join(root, pattern), recursive='**' in pattern))
     groups = {}
     for p in paths:
-        groups.setdefault(group_of(p), []).append(p)
+        groups.setdefault(group_key(p, root, by), []).append(p)
     for g in groups:
         groups[g].sort(key=lambda p: order_key(p))
     return paths, groups
@@ -127,29 +141,33 @@ def analyze_file(path):
                 f=f)
 
 
-def _safe_analyze(p):
+def _safe_analyze(args):
+    p, root, by = args
     try:
         d = analyze_file(p)
         d.pop('f', None)          # only the numbers are needed downstream
-        d['group'] = group_of(p)
+        d['group'] = group_key(p, root, by)
         return d
     except Exception:
         return None
 
 
-def load_features(paths, jobs=10, progress=None):
+def load_features(paths, jobs=10, progress=None, root=None, by='name'):
     """Parallel analyze_file(); failed files are skipped silently."""
     from concurrent.futures import ProcessPoolExecutor
+    if root is None:
+        root = os.path.dirname(paths[0]) if paths else '.'
+    args = [(p, root, by) for p in paths]
     out = []
     if jobs <= 1:
-        for i, r in enumerate(map(_safe_analyze, paths)):
+        for i, r in enumerate(map(_safe_analyze, args)):
             if r:
                 out.append(r)
             if progress and (i + 1) % 200 == 0:
                 progress(i + 1, len(paths))
         return out
     with ProcessPoolExecutor(max_workers=jobs) as ex:
-        for i, r in enumerate(ex.map(_safe_analyze, paths, chunksize=4)):
+        for i, r in enumerate(ex.map(_safe_analyze, args, chunksize=4)):
             if r:
                 out.append(r)
             if progress and (i + 1) % 200 == 0:

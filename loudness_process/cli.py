@@ -58,7 +58,7 @@ def _discover(a):
                     pat = cand
                     break
             pat = pat or '*.wav'
-    paths, groups = discover(root, pat)
+    paths, groups = discover(root, pat, a.group_by)
     if not paths:
         _say('!! no audio matched %r under %s' % (pat, root))
         sys.exit(2)
@@ -79,7 +79,7 @@ def _worker(args):
 def cmd_audit(a):
     paths, groups, pat = _discover(a)
     _say('analysing ...')
-    rows = load_features(paths, jobs=a.jobs, progress=_progress)
+    rows = load_features(paths, jobs=a.jobs, progress=_progress, root=a.indir, by=a.group_by)
     rep = audit(rows, target=a.target, tol=a.tol, tp_max=a.tp_max,
                 b_target_oct=a.b_tilt_oct)
     out = a.outdir or os.path.join(a.indir, '_loudness_audit')
@@ -99,7 +99,7 @@ def cmd_process(a, plan_rows=None):
     opts = _options(a)
     if plan_rows is None:
         _say('analysing ...')
-        plan_rows = load_features(paths, jobs=a.jobs, progress=_progress)
+        plan_rows = load_features(paths, jobs=a.jobs, progress=_progress, root=a.indir, by=a.group_by)
     plan = plan_dataset(plan_rows, opts)
     bs = [v for v in plan['b_song'].values() if v is not None]
     _say('source slope: median %s dB/oct over %d sources'
@@ -156,7 +156,7 @@ def cmd_process(a, plan_rows=None):
 def cmd_run(a):
     paths, groups, pat = _discover(a)
     _say('analysing ...')
-    rows = load_features(paths, jobs=a.jobs, progress=_progress)
+    rows = load_features(paths, jobs=a.jobs, progress=_progress, root=a.indir, by=a.group_by)
     rep = audit(rows, target=a.target, tol=a.tol, tp_max=a.tp_max,
                 b_target_oct=a.b_tilt_oct)
     os.makedirs(a.outdir, exist_ok=True)
@@ -272,9 +272,9 @@ def _auto_glob(root):
 
 def cmd_verify(a):
     pat = a.glob or (PRESETS[a.preset]['glob'] if a.preset in PRESETS else _auto_glob(a.indir))
-    rows_in, _ = discover(a.indir, pat)
+    rows_in, _ = discover(a.indir, pat, a.group_by)
     out_pat = a.glob or (_auto_glob(a.outdir) if not pat.startswith('**') else pat)
-    rows_out, _ = discover(a.outdir, out_pat)
+    rows_out, _ = discover(a.outdir, out_pat, a.group_by)
     skip = lambda p: os.path.basename(p).startswith(('AB_', '_', 'audit_'))
     rows_in = [p for p in rows_in if not skip(p)]
     rows_out = [p for p in rows_out if not skip(p)]
@@ -282,8 +282,8 @@ def cmd_verify(a):
         _say('!! no wav files in %s' % a.outdir)
         sys.exit(2)
     _say('analysing %d + %d files ...' % (len(rows_in), len(rows_out)))
-    ri = load_features(rows_in, jobs=a.jobs, progress=_progress)
-    ro = load_features(rows_out, jobs=a.jobs, progress=_progress)
+    ri = load_features(rows_in, jobs=a.jobs, progress=_progress, root=a.indir, by=a.group_by)
+    ro = load_features(rows_out, jobs=a.jobs, progress=_progress, root=a.outdir, by=a.group_by)
 
     def stat(rows):
         by = {}
@@ -335,6 +335,9 @@ def build_parser():
         sp.add_argument('--glob', default=None,
                         help="audio pattern, e.g. 'wavs/*.wav' or '**/wavs/*.wav'")
         sp.add_argument('--preset', default='auto', choices=['auto'] + list(PRESETS))
+        sp.add_argument('--group-by', default='name', choices=['name', 'dir'],
+                        help="source key: 'name' pools clips sharing a name prefix, "
+                             "'dir' also pins the folder")
         sp.add_argument('--target', type=float, default=-24.0,
                         help='loudness target in LKFS')
         sp.add_argument('--tol', type=float, default=2.0,
