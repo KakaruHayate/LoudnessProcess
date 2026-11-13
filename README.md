@@ -181,9 +181,13 @@ same phrase is heard twice in a row).
 | `--no-limiter` | off | disable the true-peak limiter |
 | `--lookahead`, `--release` | `0.012`, `0.200` | limiter time constants, seconds |
 | `--preset` | `auto` | `sliced` (clips share a name prefix) / `stems` (one file per source) / `auto` |
+| `--group-by` | `name` | `name` pools clips with a shared name prefix across folders; `dir` also pins the folder, when the same name means a different recording in each folder |
 | `--glob` | preset | audio pattern; `**` enables recursive matching |
 | `--keep-tree` | `1` | keep the input directory layout |
 | `--copy-sidecar`, `--sidecar-glob` | off, `*.csv` | copy annotation files to the output |
+| `--out-sr` | `0` (keep) | resample the output |
+| `--out-bits` | `0` (keep) | `16` / `24` / `32`; a TPDF dither is applied when writing 16 bit (`--no-dither` disables) |
+| `--out-channels` | `0` (keep) | `1` downmixes to mono by *averaging*, so a dual-mono file does not gain 3.01 LU |
 | `--jobs` | `10` | worker processes |
 | `--limit` | `0` | only the first N files (debugging) |
 
@@ -193,6 +197,8 @@ same phrase is heard twice in a row).
   shift the level.
 - **`--b-tilt-oct`** — `+6` is the safe default. Lower flattens, higher exaggerates.
 - **`--lam`** — `0.6` keeps some of each source's own character; `0.8` is more aggressive.
+  Pick it from what the audit shows: a source already near `+6 dB/oct` needs nothing (`0.6`),
+  a levelled or heavily compressed source (`+1 … +3`) needs `0.8 … 1.0`.
 - **`--tol`** — set it to your delivery tolerance if you have one; `0` if you would rather keep the
   full inter-clip dynamics and accept the spread.
 
@@ -215,6 +221,18 @@ same phrase is heard twice in a row).
 The **`want`** column is the intended level of every clip — the design pitch line. If your acoustic
 model accepts an explicit energy/dynamics channel, feeding it this column restores controllable
 dynamics without leaving the loudness spec.
+
+### Making every dataset byte-identical in format
+
+By default the source sample rate, bit depth and channel count are preserved, so a corpus assembled
+from mixed material stays mixed. Export a uniform one in a single pass:
+
+```bash
+python -m loudness_process process in out --out-sr 44100 --out-bits 16 --out-channels 1
+```
+
+Conversion happens *before* analysis, so the level and peak targets are measured on the signal that
+is actually written — which matters because a stereo downmix changes loudness by up to 3 dB.
 
 ---
 

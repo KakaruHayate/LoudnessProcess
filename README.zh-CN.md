@@ -173,9 +173,13 @@ python -m loudness_process ab path/to/dataset path/to/output --n 10
 | `--no-limiter` | 关 | 关闭真峰值限幅 |
 | `--lookahead`、`--release` | `0.012`、`0.200` | 限幅器时间常数，秒 |
 | `--preset` | `auto` | `sliced`（片段共享文件名前缀）/ `stems`（一文件一来源）/ `auto` |
+| `--group-by` | `name` | `name` 跨目录按名字前缀池化；`dir` 额外把目录钉进分组键，用于"同名但各目录是不同录音"的情况 |
 | `--glob` | 由 preset 决定 | 音频匹配模式，含 `**` 时递归 |
 | `--keep-tree` | `1` | 保持输入目录结构 |
 | `--copy-sidecar`、`--sidecar-glob` | 关 / `*.csv` | 复制标注文件到输出 |
+| `--out-sr` | `0`（保持） | 重采样输出 |
+| `--out-bits` | `0`（保持） | `16`/`24`/`32`；写 16bit 时自动加 TPDF 抖动（`--no-dither` 关闭） |
+| `--out-channels` | `0`（保持） | `1` 为降混单声道，用**平均**而非相加，dual-mono 不会凭空多 3.01 LU |
 | `--jobs` | `10` | 并行进程数 |
 | `--limit` | `0` | 只处理前 N 个（调试用） |
 
@@ -184,6 +188,8 @@ python -m loudness_process ab path/to/dataset path/to/output --n 10
 - **`--target`** —— 跟语料库其余部分保持一致，混训时才不会产生电平位移。
 - **`--b-tilt-oct`** —— `+6` 是安全值。调低会发平，调高会夸张。
 - **`--lam`** —— `0.6` 保留各来源自身的特征；`0.8` 更彻底。
+  **按体检结果选**：本来就接近 `+6 dB/oct` 的来源不用动（`0.6`）；
+  被 Levelator 或重压过的（`+1 … +3`）要用 `0.8 … 1.0`。
 - **`--tol`** —— 有交付容差就照着填；`0` 表示宁可保留完整的段间动态而接受散布。
 
 ---
@@ -205,6 +211,18 @@ python -m loudness_process ab path/to/dataset path/to/output --n 10
 其中 **`want`** 列是每条片段"按设计音高线应当具有的电平"。
 如果你的声学模型接受显式的能量/动态通道，把这一列喂给它，
 就能在不脱离响度规格的前提下把可控的动态找回来。
+
+### 把一批数据集导成完全一致的规格
+
+默认沿用源文件的采样率、位深、声道数，所以由不同素材拼起来的数据集在格式上仍然是混的。
+一条命令即可抹平：
+
+```bash
+python -m loudness_process process in out --out-sr 44100 --out-bits 16 --out-channels 1
+```
+
+格式转换发生在**分析之前**，所以电平与峰值是在"真正写出去的那份信号"上测量的 ——
+这一点很关键，因为降混本身会让响度变化最多 3 dB。
 
 ---
 
