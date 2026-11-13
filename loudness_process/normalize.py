@@ -177,7 +177,10 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
         else:
             want = opts.target + delta + design_offset(pb - ref, opts.b_seg, opts.tol)
             if opts.tol:
-                want = float(np.clip(want, opts.target - opts.tol, opts.target + opts.tol))
+                # inset the clamp by the level-loop tolerance (0.02 dB) so that a clip
+                # sitting exactly on the boundary cannot end up outside the window
+                edge = max(opts.tol - 0.03, 0.0)
+                want = float(np.clip(want, opts.target - edge, opts.target + edge))
         cgain = want - r['lufs']
         tilt = np.zeros(b - a)
         bs = r['bseg'] if r['bseg'] is not None else unit_slope
@@ -219,8 +222,8 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
                 note.append('trim%.1fdB' % (opts.tp_max - 0.02 - tp))
         l_after = lufs(y.mean(axis=1), fs)
         tp_after = true_peak_db(y, fs)
-        ok = (abs(l_after - opts.target) <= (opts.tol or 1.0) + 0.05
-              and tp_after <= opts.tp_max + 0.05)
+        ok = (abs(l_after - opts.target) <= (opts.tol or 1.0) + 0.01
+              and tp_after <= opts.tp_max + 0.01)
         if not ok:
             note.append('OUT-OF-SPEC')
         rel = (os.path.relpath(r['path'], in_root) if opts.keep_tree
