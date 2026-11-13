@@ -92,15 +92,20 @@ def pbar_of(L, P, A):
     return float((P[a].astype(np.float64) * w).sum() / w.sum())
 
 
-def frame_slope(L, P, A, min_span=MIN_SPAN_FRAME):
-    """dB per semitone of level against pitch, robust to 2.5-sigma outliers."""
+def frame_slope(L, P, A, min_span=MIN_SPAN_FRAME, min_frames=200):
+    """dB per semitone of level against pitch, robust to 2.5-sigma outliers.
+
+    `min_frames` must stay reachable for short clips: a 5-15 s clip typically has
+    only 300-400 voiced frames, so a higher bar silently disables the estimate for
+    most of a sliced dataset.
+    """
     a = A & np.isfinite(P)
-    if a.sum() < 500 or np.ptp(P[a]) < min_span:
+    if a.sum() < min_frames or np.ptp(P[a]) < min_span:
         return None
     b = float(np.polyfit(P[a].astype(np.float64), L[a].astype(np.float64), 1)[0])
     r = L[a] - b * P[a]
     keep = np.abs(r) < 2.5 * np.std(r) + 1e-9
-    if keep.sum() > 300:
+    if keep.sum() >= max(80, int(0.3 * a.sum())):
         b = float(np.polyfit(P[a][keep].astype(np.float64),
                              L[a][keep].astype(np.float64), 1)[0])
     return b
@@ -118,7 +123,7 @@ def analyze_file(path):
                 lufs=lufs(mono, fs), tp=true_peak_db(mono, fs),
                 pbar=pbar_of(f['L'], f['midi'], f['act']),
                 span=float(np.ptp(f['midi'][a])) if a.sum() else 0.0,
-                bseg=frame_slope(f['L'], f['midi'], f['act']),
+                bseg=frame_slope(f['L'], f['midi'], f['act'], min_span=MIN_SPAN_SEG),
                 f=f)
 
 

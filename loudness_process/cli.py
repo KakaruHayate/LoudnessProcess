@@ -263,9 +263,18 @@ def cmd_ab(a):
 
 
 # ----------------------------------------------------------------------- verify
+def _auto_glob(root):
+    for cand in AUTO_GLOBS:
+        if glob.glob(os.path.join(root, cand), recursive='**' in cand):
+            return cand
+    return '*.wav'
+
+
 def cmd_verify(a):
-    rows_in, _ = discover(a.indir, a.glob or '*.wav')
-    rows_out, _ = discover(a.outdir, '**/*.wav')
+    pat = a.glob or (PRESETS[a.preset]['glob'] if a.preset in PRESETS else _auto_glob(a.indir))
+    rows_in, _ = discover(a.indir, pat)
+    out_pat = a.glob or (_auto_glob(a.outdir) if not pat.startswith('**') else pat)
+    rows_out, _ = discover(a.outdir, out_pat)
     skip = lambda p: os.path.basename(p).startswith(('AB_', '_', 'audit_'))
     rows_in = [p for p in rows_in if not skip(p)]
     rows_out = [p for p in rows_out if not skip(p)]

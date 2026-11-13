@@ -120,7 +120,7 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
         r['pbar'] = pbar_of(r['L'], r['midi'], r['act'])
         a = r['act'] & np.isfinite(r['midi'])
         r['span'] = float(np.ptp(r['midi'][a])) if a.sum() else 0.0
-        r['bseg'] = frame_slope(r['L'], r['midi'], r['act'])
+        r['bseg'] = frame_slope(r['L'], r['midi'], r['act'], min_span=5.0)
 
     unit_slope = b_song.get(group) if isinstance(b_song, dict) else None
     if unit_slope is None:
