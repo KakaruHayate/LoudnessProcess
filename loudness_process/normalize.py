@@ -20,6 +20,7 @@ import os
 
 import numpy as np
 import soundfile as sf
+from scipy.signal import resample_poly
 
 from .dataset import active_mask, features, frame_slope, order_key, pbar_of
 from .loudness import lufs, smooth_db, true_peak_db, true_peak_limit
@@ -37,13 +38,16 @@ def design_offset(dpitch, b_semi, tol_window=0.0):
     return b_semi * dpitch
 
 
+SRC_SUBTYPE = {16: 'PCM_16', 24: 'PCM_24', 32: 'FLOAT'}
+
+
 class Options:
     """All processing parameters in one place (see the CLI for the mapping)."""
 
     def __init__(self, target=-24.0, tol=2.0, tp_max=-2.0, b_tilt_oct=6.0,
                  b_seg_oct=None, lam=0.6, dc_scope='pitch', level_scope='corpus',
                  limiter=True, lookahead=0.012, release=0.200, smooth=SMOOTH_S,
-                 keep_tree=True):
+                 keep_tree=True, out_sr=0, out_bits=0, out_channels=0, dither=True):
         self.target = target
         self.tol = tol
         self.tp_max = tp_max
@@ -57,6 +61,38 @@ class Options:
         self.release = release
         self.smooth = smooth
         self.keep_tree = keep_tree
+        self.out_sr = int(out_sr or 0)
+        self.out_bits = int(out_bits or 0)
+        self.out_channels = int(out_channels or 0)
+        self.dither = dither
+        self.out_subtype = SRC_SUBTYPE.get(self.out_bits)
+
+
+def convert(x, fs, opts):
+    """Bring a signal onto the requested export format.
+
+    Channel reduction averages rather than sums: a dual-mono file read as stereo
+    is 3.01 LU louder than the same file as mono, which is the classic way to
+    build an inconsistent corpus.
+    """
+    if opts.out_sr and int(opts.out_sr) != int(fs):
+        g = math.gcd(int(opts.out_sr), int(fs))
+        x = resample_poly(x, int(opts.out_sr) // g, int(fs) // g, axis=0)
+        fs = int(opts.out_sr)
+    if opts.out_channels and x.shape[1] != opts.out_channels:
+        if opts.out_channels == 1:
+            x = x.mean(axis=1, keepdims=True)
+        else:
+            x = np.repeat(x.mean(axis=1, keepdims=True), opts.out_channels, axis=1)
+    return x, fs
+
+
+def _quantise(y, opts):
+    """TPDF dither at +-1 LSB when reducing to 16 bit or below."""
+    if not opts.dither or not opts.out_bits or opts.out_bits > 16:
+        return y
+    lsb = 1.0 / (2 ** (opts.out_bits - 1))
+    return y + (np.random.random(y.shape) - np.random.random(y.shape)) * lsb
 
 
 # --------------------------------------------------------------------- planning
@@ -107,8 +143,9 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
     recs = []
     for p in paths:
         try:
-            f = features(p)
             x, fs = sf.read(p, dtype='float64', always_2d=True)
+            x, fs = convert(x, fs, opts)
+            f = features(p, x, fs)
         except Exception:
             continue
         recs.append(dict(path=p, x=x, lufs=lufs(f['mono'], fs), **f))
@@ -169,12 +206,17 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
                     break
                 y = y * 10 ** ((r['want'] - cur) / 20.0)
         if opts.limiter:
-            for _ in range(3):
-                if true_peak_db(y, fs) <= opts.tp_max:
+            for _ in range(4):
+                tp = true_peak_db(y, fs)
+                if tp <= opts.tp_max:
                     break
                 y, gr = true_peak_limit(y, fs, opts.tp_max - 0.08,
                                         opts.lookahead, opts.release)
                 note.append('lim%.1fdB' % min(gr, 0.0))
+            tp = true_peak_db(y, fs)
+            if tp > opts.tp_max:      # last resort: the spec is a hard guarantee
+                y = y * 10 ** ((opts.tp_max - 0.02 - tp) / 20.0)
+                note.append('trim%.1fdB' % (opts.tp_max - 0.02 - tp))
         l_after = lufs(y.mean(axis=1), fs)
         tp_after = true_peak_db(y, fs)
         ok = (abs(l_after - opts.target) <= (opts.tol or 1.0) + 0.05
@@ -186,8 +228,10 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
         outp = os.path.join(out_dir, rel)
         os.makedirs(os.path.dirname(outp) or out_dir, exist_ok=True)
         info = sf.info(r['path'])
-        sub = info.subtype if info.subtype in ('PCM_16', 'PCM_24', 'FLOAT') else 'PCM_24'
-        sf.write(outp, y, fs, subtype=sub)
+        sub = opts.out_subtype or (info.subtype
+                                   if info.subtype in ('PCM_16', 'PCM_24', 'FLOAT')
+                                   else 'PCM_24')
+        sf.write(outp, _quantise(y, opts), fs, subtype=sub)
         rows.append(dict(file=os.path.basename(r['path']), group=group,
                          dur=round(len(r['mono']) / fs, 2),
                          pbar=round(r['pbar'], 1) if r['pbar'] else '',

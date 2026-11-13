@@ -119,16 +119,21 @@ def true_peak_limit(x, fs, ceiling_db=-2.0, lookahead=0.012, release=0.200,
                     oversample=4):
     """Look-ahead true-peak limiter with conventional 12 ms / 200 ms defaults.
 
-    Compliance is guaranteed by a sliding minimum of the required gain over the
-    look-ahead window; the one-pole release only shapes the recovery curve.
+    The required gain is derived in the oversampled domain (where inter-sample
+    peaks are visible) but *applied at the base sample rate*. Resampling the audio
+    up and back down would inject new ringing on every pass and stop the ceiling
+    from ever converging; attenuating the original signal only scales it, so
+    repeated passes are guaranteed to converge.
+
     Returns (limited_signal, applied_gain_db_at_worst_point).
     """
     x = np.asarray(x, dtype=np.float64)
     if x.size == 0:
         return x, 0.0
+    mono = x if x.ndim == 1 else x.max(axis=1)
     ceil = 10 ** (ceiling_db / 20.0)
-    y = resample_poly(x, oversample, 1)
-    g_req = np.minimum(1.0, ceil / np.maximum(np.abs(y), 1e-12))
+    y = np.abs(resample_poly(mono, oversample, 1))
+    g_req = np.minimum(1.0, ceil / np.maximum(y, 1e-12))
     if g_req.min() >= 1.0:
         return x, 0.0
     la = max(1, int(round(lookahead * fs * oversample)))
@@ -136,8 +141,18 @@ def true_peak_limit(x, fs, ceiling_db=-2.0, lookahead=0.012, release=0.200,
     a = math.exp(-1.0 / max(1.0, release * fs * oversample))
     g_rel = lfilter([1 - a], [1, -a], g_min, zi=[a * g_min[0]])[0]
     g = np.minimum(g_min, g_rel)
-    out = resample_poly(y * g, 1, oversample)[:len(x)]
-    return out, 20.0 * math.log10(max(float(np.min(g)), 1e-9))
+
+    n = len(mono)
+    m = len(g) // oversample
+    if m == 0:
+        return x, 0.0
+    # conservative: the base-rate gain never exceeds what any oversampled point needs
+    g_base = g[:m * oversample].reshape(m, oversample).min(axis=1)
+    if m < n:
+        g_base = np.concatenate([g_base, np.full(n - m, g_base[-1])])
+    g_apply = g_base[:n]
+    out = x * (g_apply[:, None] if x.ndim > 1 else g_apply)
+    return out, 20.0 * math.log10(max(float(g_apply.min()), 1e-9))
 
 
 # ------------------------------------------------------------------- utilities

@@ -43,7 +43,9 @@ def _options(a):
                    b_tilt_oct=a.b_tilt_oct, b_seg_oct=a.b_seg_oct, lam=a.lam,
                    dc_scope=a.dc_scope, level_scope=a.level_scope,
                    limiter=not a.no_limiter, lookahead=a.lookahead,
-                   release=a.release, keep_tree=bool(a.keep_tree))
+                   release=a.release, keep_tree=bool(a.keep_tree),
+                   out_sr=a.out_sr, out_bits=a.out_bits, out_channels=a.out_channels,
+                   dither=not a.no_dither)
 
 
 def _discover(a):
@@ -361,6 +363,14 @@ def build_parser():
                         help='copy annotation files next to the output audio')
         sp.add_argument('--sidecar-glob', default='*.csv',
                         help='pattern for --copy-sidecar')
+        sp.add_argument('--out-sr', type=int, default=0,
+                        help='resample the output to this rate (0 = keep)')
+        sp.add_argument('--out-bits', type=int, default=0, choices=[0, 16, 24, 32],
+                        help='output bit depth (0 = keep the source)')
+        sp.add_argument('--out-channels', type=int, default=0,
+                        help='output channel count, 1 = mono downmix (0 = keep)')
+        sp.add_argument('--no-dither', action='store_true',
+                        help='skip the TPDF dither applied when writing 16 bit')
         sp.add_argument('--jobs', type=int, default=10)
         sp.add_argument('--limit', type=int, default=0,
                         help='process only the first N files (debug)')

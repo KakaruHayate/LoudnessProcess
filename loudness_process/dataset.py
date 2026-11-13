@@ -65,9 +65,14 @@ def discover(root, pattern='*.wav', by='name'):
 
 
 # ------------------------------------------------------------------- features
-def features(path):
-    """Per-frame level (band-limited), pitch in MIDI, activity mask, mono mix."""
-    x, fs = sf.read(path, dtype='float64', always_2d=True)
+def features(path, x=None, fs=None):
+    """Per-frame level (band-limited), pitch in MIDI, activity mask, mono mix.
+
+    `x`/`fs` may be supplied when the caller has already loaded (and possibly
+    resampled / downmixed) the audio, so that analysis and output agree.
+    """
+    if x is None:
+        x, fs = sf.read(path, dtype='float64', always_2d=True)
     mono = x.mean(axis=1)
     ms = frame_ms(mono, fs)
     msb = frame_ms(band_limit(mono, fs), fs)
