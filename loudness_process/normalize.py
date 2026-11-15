@@ -39,6 +39,8 @@ def design_offset(dpitch, b_semi, tol_window=0.0):
 
 
 SRC_SUBTYPE = {16: 'PCM_16', 24: 'PCM_24', 32: 'FLOAT'}
+# subtypes written back unchanged when --out-bits is not given
+KEEP_SUBTYPES = ('PCM_16', 'PCM_24', 'PCM_32', 'FLOAT', 'DOUBLE')
 
 
 class Options:
@@ -231,8 +233,7 @@ def process_group(group, paths, out_dir, in_root, opts, b_song, ref, delta):
         outp = os.path.join(out_dir, rel)
         os.makedirs(os.path.dirname(outp) or out_dir, exist_ok=True)
         info = sf.info(r['path'])
-        sub = opts.out_subtype or (info.subtype
-                                   if info.subtype in ('PCM_16', 'PCM_24', 'FLOAT')
+        sub = opts.out_subtype or (info.subtype if info.subtype in KEEP_SUBTYPES
                                    else 'PCM_24')
         sf.write(outp, _quantise(y, opts), fs, subtype=sub)
         rows.append(dict(file=os.path.basename(r['path']), group=group,

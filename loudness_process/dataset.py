@@ -37,10 +37,21 @@ def group_of(name):
     return m.group(1) if m else stem
 
 
-def group_key(path, root, by='name'):
-    """Source key for a file.  by='dir' also pins the containing folder, so that
-    the same song in two folders (different language, different style) is not
-    merged into one source."""
+def group_key(path, root, by='name', regex=None):
+    """Source key for a file.
+
+    `regex` wins when given: its first capture group (or the whole match) is the key.
+    When the regex does not match, the file becomes its own source — an explicit
+    rule must not silently fall back to the heuristic, which happily merges 300
+    unrelated clips that merely end in '_<index>'.
+
+    Otherwise by='dir' pins the containing folder, so that the same song in two
+    folders (different language, different style) is not merged into one source.
+    """
+    stem = os.path.splitext(os.path.basename(path))[0]
+    if regex:
+        m = re.match(regex, stem)
+        return (m.group(1) if m.groups() else m.group(0)) if m else stem
     if by == 'dir':
         rel = os.path.relpath(os.path.dirname(path), root).replace('\\', '/')
         return rel + '/' + group_of(path)
@@ -53,12 +64,12 @@ def order_key(name):
     return int(nums[-1]) if nums else 0
 
 
-def discover(root, pattern='*.wav', by='name'):
+def discover(root, pattern='*.wav', by='name', regex=None):
     """-> (paths, groups).  `pattern` may contain '**' for nested layouts."""
     paths = sorted(glob.glob(os.path.join(root, pattern), recursive='**' in pattern))
     groups = {}
     for p in paths:
-        groups.setdefault(group_key(p, root, by), []).append(p)
+        groups.setdefault(group_key(p, root, by, regex), []).append(p)
     for g in groups:
         groups[g].sort(key=lambda p: order_key(p))
     return paths, groups
@@ -147,22 +158,22 @@ def analyze_file(path):
 
 
 def _safe_analyze(args):
-    p, root, by = args
+    p, root, by, rx = args
     try:
         d = analyze_file(p)
         d.pop('f', None)          # only the numbers are needed downstream
-        d['group'] = group_key(p, root, by)
+        d['group'] = group_key(p, root, by, rx)
         return d
     except Exception:
         return None
 
 
-def load_features(paths, jobs=10, progress=None, root=None, by='name'):
+def load_features(paths, jobs=10, progress=None, root=None, by='name', regex=None):
     """Parallel analyze_file(); failed files are skipped silently."""
     from concurrent.futures import ProcessPoolExecutor
     if root is None:
         root = os.path.dirname(paths[0]) if paths else '.'
-    args = [(p, root, by) for p in paths]
+    args = [(p, root, by, regex) for p in paths]
     out = []
     if jobs <= 1:
         for i, r in enumerate(map(_safe_analyze, args)):
